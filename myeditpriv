@@ -5,8 +5,6 @@ import sys
 import signal
 import json
 import os
-
-# Import necessary modules for Instagram Graph API interaction
 import requests
 
 # Define if running on Windows or Linux
@@ -82,7 +80,7 @@ class InstagramAPI:
     
     def get_user_info(self):
         """ Fetch basic user info using Instagram Graph API """
-        url = f"{self.base_url}/{self.username}?fields=id,username,media_count,follower_count,following_count&access_token={self.token}"
+        url = f"{self.base_url}/{self.username}?fields=id,username,media_count,followers_count,following_count&access_token={self.token}"
         response = requests.get(url)
         return response.json()
 
@@ -147,4 +145,22 @@ while True:
         print("Run a command: ", end="")
         cmd = input().strip()
 
-        _cmd = com
+        _cmd = commands.get(cmd)
+
+    if _cmd:
+        result = _cmd()
+        if args.file or args.json:
+            filename = f"{args.username}_{cmd}.txt"
+            api.save_output(result, filename)
+    elif cmd == "FILE=y":
+        api.file_output = True
+    elif cmd == "FILE=n":
+        api.file_output = False
+    elif cmd == "JSON=y":
+        api.json_output = True
+    elif cmd == "JSON=n":
+        api.json_output = False
+    elif cmd == "":
+        print("")
+    else:
+        print("Unknown command\n", file=sys.stderr)
