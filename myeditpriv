@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
-from src.Osintgram import Osintgram
 import argparse
-from src import printcolors as pc
-from src import artwork
 import sys
 import signal
+import json
+import os
 
+# Import necessary modules for Instagram Graph API interaction
+import requests
+
+# Define if running on Windows or Linux
 is_windows = False
-
 try:
     import gnureadline
 except ImportError:
@@ -16,80 +18,36 @@ except ImportError:
     try:
         import pyreadline
     except ImportError:
-        pc.printout("Warning: Neither gnureadline nor pyreadline is available. Tab completion will be disabled.", pc.RED)
-        # Gracefully handle the absence of readline if needed
-        def completer(text, state):
-            return None  # Disable completer
+        pass  # Handle absence gracefully
 
+# Simple print logo and information
 def printlogo():
-    pc.printout(artwork.ascii_art, pc.YELLOW)
-    pc.printout("\nVersion 1.1 - Developed by Giuseppe Criscione\n\n", pc.YELLOW)
-    pc.printout("Type 'list' to show all allowed commands\n")
-    pc.printout("Type 'FILE=y' to save results to files like '<target username>_<command>.txt (default is disabled)'\n")
-    pc.printout("Type 'FILE=n' to disable saving to files'\n")
-    pc.printout("Type 'JSON=y' to export results to a JSON files like '<target username>_<command>.json (default is "
-                "disabled)'\n")
-    pc.printout("Type 'JSON=n' to disable exporting to files'\n")
+    print("""
+    Version 1.1 - Developed by Giuseppe Criscione
+    -------------------------------
+    Type 'list' to show all allowed commands
+    Type 'FILE=y' to save results to files like '<target username>_<command>.txt'
+    Type 'JSON=y' to export results to a JSON file
+    """)
 
-
+# List of commands available to the user
 def cmdlist():
-    pc.printout("FILE=y/n\t")
-    print("Enable/disable output in a '<target username>_<command>.txt' file'")
-    pc.printout("JSON=y/n\t")
-    print("Enable/disable export in a '<target username>_<command>.json' file'")
-    pc.printout("addrs\t\t")
-    print("Get all registered addresses by target photos")
-    pc.printout("cache\t\t")
-    print("Clear cache of the tool")
-    pc.printout("captions\t")
-    print("Get target's photos captions")
-    pc.printout("commentdata\t")
-    print("Get a list of all the comments on the target's posts")
-    pc.printout("comments\t")
-    print("Get total comments of target's posts")
-    pc.printout("followers\t")
-    print("Get target followers")
-    pc.printout("followings\t")
-    print("Get users followed by target")
-    pc.printout("fwersemail\t")
-    print("Get email of target followers")
-    pc.printout("fwingsemail\t")
-    print("Get email of users followed by target")
-    pc.printout("fwersnumber\t")
-    print("Get phone number of target followers")
-    pc.printout("fwingsnumber\t")
-    print("Get phone number of users followed by target")
-    pc.printout("hashtags\t")
-    print("Get hashtags used by target")
-    pc.printout("info\t\t")
-    print("Get target info")
-    pc.printout("likes\t\t")
-    print("Get total likes of target's posts")
-    pc.printout("mediatype\t")
-    print("Get target's posts type (photo or video)")
-    pc.printout("photodes\t")
-    print("Get description of target's photos")
-    pc.printout("photos\t\t")
-    print("Download target's photos in output folder")
-    pc.printout("propic\t\t")
-    print("Download target's profile picture")
-    pc.printout("stories\t\t")
-    print("Download target's stories")
-    pc.printout("tagged\t\t")
-    print("Get list of users tagged by target")
-    pc.printout("target\t\t")
-    print("Set new target")
-    pc.printout("wcommented\t")
-    print("Get a list of users who commented on target's photos")
-    pc.printout("wtagged\t\t")
-    print("Get a list of users who tagged target")
-
+    print("""
+    FILE=y/n     Enable/disable output in a '<target username>_<command>.txt' file
+    JSON=y/n     Enable/disable export in a '<target username>_<command>.json' file
+    addrs        Get all registered addresses by target photos
+    captions     Get target's photos captions
+    comments     Get total comments of target's posts
+    followers    Get target followers
+    followings   Get users followed by target
+    info         Get target info
+    """)
 
 def signal_handler(sig, frame):
-    pc.printout("\nGoodbye!\n", pc.RED)
+    print("\nGoodbye!")
     sys.exit(0)
 
-
+# Handle command completion
 def completer(text, state):
     options = [i for i in commands if i.startswith(text)]
     if state < len(options):
@@ -97,71 +55,87 @@ def completer(text, state):
     else:
         return None
 
-
+# Command for quitting
 def _quit():
-    pc.printout("Goodbye!\n", pc.RED)
+    print("Goodbye!")
     sys.exit(0)
-
 
 signal.signal(signal.SIGINT, signal_handler)
 
-# Setup for Windows or non-Windows readline
-if is_windows:
+# Setup readline for Linux or Windows environments
+if not is_windows:
     try:
-        pyreadline.Readline().parse_and_bind("tab: complete")
-        pyreadline.Readline().set_completer(completer)
-    except NameError:
-        pass
-else:
-    try:
-        gnureadline.parse_and_bind("tab: complete")
-        gnureadline.set_completer(completer)
-    except NameError:
+        import readline
+        readline.parse_and_bind("tab: complete")
+        readline.set_completer(completer)
+    except ImportError:
         pass
 
-parser = argparse.ArgumentParser(description='Osintgram is an OSINT tool on Instagram. It offers an interactive shell '
-                                             'to perform analysis on Instagram accounts by their nickname')
-parser.add_argument('id', type=str, help='username')
+# API access to Instagram (using Graph API)
+class InstagramAPI:
+    def __init__(self, username, token, file_output=False, json_output=False):
+        self.username = username
+        self.token = token
+        self.file_output = file_output
+        self.json_output = json_output
+        self.base_url = "https://graph.instagram.com"
+    
+    def get_user_info(self):
+        """ Fetch basic user info using Instagram Graph API """
+        url = f"{self.base_url}/{self.username}?fields=id,username,media_count,follower_count,following_count&access_token={self.token}"
+        response = requests.get(url)
+        return response.json()
+
+    def get_followers(self):
+        """ Get followers list """
+        url = f"{self.base_url}/{self.username}/followers?access_token={self.token}"
+        response = requests.get(url)
+        return response.json()
+
+    def get_photos(self):
+        """ Get user photos """
+        url = f"{self.base_url}/{self.username}/media?fields=id,caption,media_type,media_url&access_token={self.token}"
+        response = requests.get(url)
+        return response.json()
+
+    # More functions as needed...
+
+    def save_output(self, data, filename):
+        if self.file_output:
+            with open(filename, 'w') as file:
+                file.write(data)
+
+        if self.json_output:
+            with open(filename.replace('.txt', '.json'), 'w') as json_file:
+                json.dump(data, json_file, indent=4)
+
+# Parse command-line arguments
+parser = argparse.ArgumentParser(description="Osintgram - OSINT tool for Instagram")
+parser.add_argument('username', type=str, help="Instagram username")
+parser.add_argument('access_token', type=str, help="Instagram API access token")
 parser.add_argument('-C', '--cookies', help="clear previous cookies", action="store_true")
-parser.add_argument('-j', '--json', help='save commands output as JSON file', action='store_true')
-parser.add_argument('-f', '--file', help='save output in a file', action='store_true')
-parser.add_argument('-c', '--command', help='run in single command mode & execute provided command', action='store')
-parser.add_argument('-o', '--output', help='where to store photos', action='store')
+parser.add_argument('-j', '--json', help='Save output as JSON', action='store_true')
+parser.add_argument('-f', '--file', help='Save output in a file', action='store_true')
+parser.add_argument('-c', '--command', help='Run a single command', action='store')
+parser.add_argument('-o', '--output', help='Where to store photos', action='store')
 
 args = parser.parse_args()
 
-api = Osintgram(args.id, args.file, args.json, args.command, args.output, args.cookies)
+# Initialize the Instagram API class
+api = InstagramAPI(args.username, args.access_token, args.file, args.json)
 
+# Commands list
 commands = {
-    'list':             cmdlist,
-    'help':             cmdlist,
-    'quit':             _quit,
-    'exit':             _quit,
-    'addrs':            api.get_addrs,
-    'cache':            api.clear_cache,
-    'captions':         api.get_captions,
-    "commentdata":      api.get_comment_data,
-    'comments':         api.get_total_comments,
-    'followers':        api.get_followers,
-    'followings':       api.get_followings,
-    'fwersemail':       api.get_fwersemail,
-    'fwingsemail':      api.get_fwingsemail,
-    'fwersnumber':      api.get_fwersnumber,
-    'fwingsnumber':     api.get_fwingsnumber,
-    'hashtags':         api.get_hashtags,
-    'info':             api.get_user_info,
-    'likes':            api.get_total_likes,
-    'mediatype':        api.get_media_type,
-    'photodes':         api.get_photo_description,
-    'photos':           api.get_user_photo,
-    'propic':           api.get_user_propic,
-    'stories':          api.get_user_stories,
-    'tagged':           api.get_people_tagged_by_user,
-    'target':           api.change_target,
-    'wcommented':       api.get_people_who_commented,
-    'wtagged':          api.get_people_who_tagged
+    'list': cmdlist,
+    'help': cmdlist,
+    'quit': _quit,
+    'exit': _quit,
+    'info': api.get_user_info,
+    'followers': api.get_followers,
+    'photos': api.get_photos,
 }
 
+# Display logo
 if not args.command:
     printlogo()
 
@@ -170,25 +144,7 @@ while True:
         cmd = args.command
         _cmd = commands.get(cmd)
     else:
-        pc.printout("Run a command: ", pc.YELLOW)
-        cmd = input()
+        print("Run a command: ", end="")
+        cmd = input().strip()
 
-        _cmd = commands.get(cmd)
-
-    if _cmd:
-        _cmd()
-    elif cmd == "FILE=y":
-        api.set_write_file(True)
-    elif cmd == "FILE=n":
-        api.set_write_file(False)
-    elif cmd == "JSON=y":
-        api.set_json_dump(True)
-    elif cmd == "JSON=n":
-        api.set_json_dump(False)
-    elif cmd == "":
-        print("")
-    else:
-        pc.printout("Unknown command\n", pc.RED)
-
-    if args.command:
-        break
+        _cmd = com
